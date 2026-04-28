@@ -87,28 +87,48 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
             }
 
             Event::RedrawRequested(_) => {
-                // Run master clock until the PPU signals one full frame.
-                // cpu.step() returns CPU cycles consumed; PPU ticks 3× per cycle.
+                // Master clock loop — spec milestone 4 §2.
+                // Each iteration: tick PPU 3 times first, service NMI/DMA, then step CPU.
+                // PPU-first ordering ensures NMI is detected at the correct CPU instruction
+                // boundary after VBlank starts (scanline 241, dot 1).
                 while !bus.ppu.frame_complete {
-                    let cpu_cycles = cpu.step(&mut bus);
-                    for _ in 0..cpu_cycles {
-                        {
-                            // Split-field borrow: bus.ppu (mut) vs bus.nametable_vram + bus.mapper (shared).
-                            let nt = &bus.nametable_vram;
-                            let mapper = bus.mapper.as_ref();
-                            bus.ppu.tick(nt, mapper);
-                        }
-                        {
-                            let nt = &bus.nametable_vram;
-                            let mapper = bus.mapper.as_ref();
-                            bus.ppu.tick(nt, mapper);
-                        }
-                        {
-                            let nt = &bus.nametable_vram;
-                            let mapper = bus.mapper.as_ref();
-                            bus.ppu.tick(nt, mapper);
-                        }
+                    {
+                        let nt = &bus.nametable_vram;
+                        let mapper = bus.mapper.as_ref();
+                        bus.ppu.tick(nt, mapper);
                     }
+                    {
+                        let nt = &bus.nametable_vram;
+                        let mapper = bus.mapper.as_ref();
+                        bus.ppu.tick(nt, mapper);
+                    }
+                    {
+                        let nt = &bus.nametable_vram;
+                        let mapper = bus.mapper.as_ref();
+                        bus.ppu.tick(nt, mapper);
+                    }
+
+                    // OAM DMA — spec §7. Performed before NMI/CPU step.
+                    if bus.oam_dma_pending {
+                        bus.oam_dma_pending = false;
+                        let page = (bus.oam_dma_page as u16) << 8;
+                        let oam_addr = bus.ppu.oam_addr;
+                        for i in 0u16..256 {
+                            let val = bus.read(page | i);
+                            let oam_idx = oam_addr.wrapping_add(i as u8) as usize;
+                            bus.ppu.oam[oam_idx] = val;
+                        }
+                        // Hardware stalls CPU 513 cycles (514 on odd CPU cycle).
+                        cpu.cycles += 513;
+                    }
+
+                    // Service pending NMI (edge-triggered by the PPU).
+                    if bus.ppu.nmi_pending {
+                        bus.ppu.nmi_pending = false;
+                        cpu.nmi(&mut bus);
+                    }
+
+                    cpu.step(&mut bus);
                 }
                 bus.ppu.frame_complete = false;
 

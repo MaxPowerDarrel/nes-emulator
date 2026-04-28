@@ -30,6 +30,11 @@ pub struct Bus {
     pub nametable_vram: [u8; 2048],
     pub mapper: Box<dyn Mapper>,
     pub ppu: Ppu,
+
+    /// OAM DMA pending flag — set by a write to $4014; consumed by the main loop.
+    /// Spec: https://www.nesdev.org/wiki/PPU_registers#OAM_DMA_.28.244014.29_write
+    pub oam_dma_pending: bool,
+    pub oam_dma_page: u8,
 }
 
 impl Bus {
@@ -40,6 +45,8 @@ impl Bus {
             nametable_vram: [0u8; 2048],
             mapper,
             ppu: Ppu::new(),
+            oam_dma_pending: false,
+            oam_dma_page: 0,
         }
     }
 
@@ -89,7 +96,13 @@ impl Bus {
                     self.mapper.as_mut(),
                 );
             }
-            0x4000..=0x4017 => {} // APU/IO stub
+            0x4014 => {
+                // OAM DMA: defer the actual transfer to the main loop so it can
+                // also stall the CPU correctly.
+                self.oam_dma_pending = true;
+                self.oam_dma_page = val;
+            }
+            0x4000..=0x4013 | 0x4015..=0x4017 => {} // APU/IO stub
             0x4018..=0x5FFF => {} // open bus
             WRAM_START..=WRAM_END => self.wram[(addr - WRAM_START) as usize] = val,
             0x8000..=0xFFFF => self.mapper.cpu_write(addr, val),

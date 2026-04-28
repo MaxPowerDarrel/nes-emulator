@@ -115,6 +115,31 @@ impl Cpu {
         1 + page_crossed as u8
     }
 
+    // ── Interrupts ────────────────────────────────────────────────────────────
+
+    /// Service a non-maskable interrupt.
+    ///
+    /// Sequence (Spec: https://www.nesdev.org/wiki/CPU_interrupts):
+    ///   1. Push PCH, then PCL.
+    ///   2. Push P with B (bit 4) clear and bit 5 set.
+    ///   3. Set I flag.
+    ///   4. Load PC from $FFFA/$FFFB.
+    ///   5. Consume 7 cycles.
+    pub fn nmi(&mut self, bus: &mut Bus) {
+        let pc_hi = (self.pc >> 8) as u8;
+        let pc_lo = (self.pc & 0xFF) as u8;
+        self.stack_push(bus, pc_hi);
+        self.stack_push(bus, pc_lo);
+        // Push P with B (bit 4) clear, bit 5 always set.
+        let pushed_p = (self.p & !0x10) | 0x20;
+        self.stack_push(bus, pushed_p);
+        self.p |= 0x04; // I flag
+        let lo = bus.read(0xFFFA) as u16;
+        let hi = bus.read(0xFFFB) as u16;
+        self.pc = (hi << 8) | lo;
+        self.cycles += 7;
+    }
+
     // ── Main step ─────────────────────────────────────────────────────────────
 
     /// Execute one instruction. Returns total CPU cycles consumed.
