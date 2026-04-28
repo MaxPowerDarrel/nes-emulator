@@ -14,6 +14,7 @@
 use crate::cartridge::{Cartridge, Mapper, Mirroring};
 use crate::input::Controller;
 use crate::ppu::Ppu;
+use crate::apu::Apu;
 
 const RAM_SIZE: usize = 2048;
 const RAM_MASK: u16 = 0x07FF;
@@ -32,6 +33,7 @@ pub struct Bus {
     pub nametable_vram: [u8; 2048],
     pub mapper: Box<dyn Mapper>,
     pub ppu: Ppu,
+    pub apu: Apu,
 
     /// OAM DMA pending flag — set by a write to $4014; consumed by the main loop.
     /// Spec: https://www.nesdev.org/wiki/PPU_registers#OAM_DMA_.28.244014.29_write
@@ -55,6 +57,7 @@ impl Bus {
             nametable_vram: [0u8; 2048],
             mapper: cart.mapper,
             ppu: Ppu::new(),
+            apu: Apu::new(),
             oam_dma_pending: false,
             oam_dma_page: 0,
             controller1: Controller::new(),
@@ -77,7 +80,8 @@ impl Bus {
             }
             0x4016 => self.controller1.read(),
             0x4017 => self.controller2.read(),
-            0x4000..=0x4015 => 0xFF, // APU/IO stub
+            0x4015 => self.apu.read_status(),
+            0x4000..=0x4014 => 0xFF, // write-only APU registers
             0x4018..=0x5FFF => 0xFF, // open bus
             WRAM_START..=WRAM_END => {
                 if self.wram.is_empty() {
@@ -130,7 +134,7 @@ impl Bus {
                 self.controller1.write_strobe(val);
                 self.controller2.write_strobe(val);
             }
-            0x4000..=0x4013 | 0x4015 | 0x4017 => {} // APU/IO stub
+            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write_register(addr, val),
             0x4018..=0x5FFF => {} // open bus
             WRAM_START..=WRAM_END => {
                 if !self.wram.is_empty() {

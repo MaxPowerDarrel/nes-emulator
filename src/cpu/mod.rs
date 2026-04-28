@@ -32,6 +32,8 @@ pub struct Cpu {
     /// Pending maskable interrupt — set by `request_irq()`, honoured at start of next instruction
     /// if the I flag is clear. Spec: https://www.nesdev.org/wiki/CPU_interrupts
     pub irq_pending: bool,
+    /// Number of cycles to stall the CPU (used for DMC DMA).
+    pub stall_cycles: u32,
 }
 
 impl Cpu {
@@ -46,6 +48,7 @@ impl Cpu {
             p: 0x24, // I set, bit 5 always set
             cycles: 0,
             irq_pending: false,
+            stall_cycles: 0,
         }
     }
 

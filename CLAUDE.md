@@ -34,7 +34,7 @@ Build a cycle-accurate NES emulator in Rust as a hardware learning exercise. Cor
 ### Tech Stack
 - **Language**: Rust (stable)
 - **Rendering**: `winit` + `pixels` (pure Rust framebuffer, 256×240 NES native resolution)
-- **Audio**: Deferred — APU is out of scope until CPU and PPU are solid
+- **Audio**: Implemented — APU milestone 8 complete, mono output via `cpal`
 - **No external game-logic dependencies** — implement everything from the NES hardware spec
 
 ### Accuracy Target
@@ -87,7 +87,7 @@ Test ROMs are first-class. The CPU must pass `nestest.nes` before PPU work begin
 5. **Input** — standard controller ($4016/$4017 polling)
 6. **First playable game** — Super Mario Bros 1 boots and is playable
 7. **Mappers 1–4** — expand game compatibility
-8. **APU** — audio synthesis (deferred)
+8. **APU** — audio synthesis (completed)
 
 ### Version Control
 - **New feature = new branch** — never commit feature work directly to `main`

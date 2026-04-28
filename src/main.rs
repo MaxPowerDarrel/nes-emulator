@@ -3,6 +3,8 @@ mod cartridge;
 mod cpu;
 mod input;
 mod ppu;
+mod apu;
+mod audio;
 
 use std::env;
 use std::error::Error;
@@ -72,8 +74,20 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
     // Spec: https://www.nesdev.org/wiki/Standard_controller — key mapping §4
     let mut held_keys: HashSet<VirtualKeyCode> = HashSet::new();
 
+    let (prod, _audio, sample_rate) = audio::start_audio()?;
+    bus.apu.output_buffer = Some(prod);
+    bus.apu.sample_rate = sample_rate as f32;
+
+    // Wall-clock pacing: NES NTSC frame rate is 60.0988 Hz. Sleep the event
+    // loop until the next frame boundary so emulation runs at real-time speed
+    // regardless of the host's display refresh rate. Without this, on a
+    // high-refresh display the redraw loop fires far faster than 60 Hz and
+    // the APU produces samples in bursts → audible static.
+    let frame_duration = std::time::Duration::from_nanos(16_639_267); // 1 / 60.0988
+    let mut next_frame = std::time::Instant::now() + frame_duration;
+
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::WaitUntil(next_frame);
 
         match event {
             Event::WindowEvent {
@@ -145,22 +159,56 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                 // visual timing in sync — otherwise the CPU runs ~3× faster than the PPU
                 // and animations appear sped up / janky.
                 while !bus.ppu.frame_complete {
+                    // DMC DMA stall
+                    if bus.apu.dmc.dma_request {
+                        let addr = bus.apu.dmc.current_address;
+                        let val = bus.read(addr);
+                        bus.apu.dmc.dma_read(val);
+                        cpu.stall_cycles += 4;
+                    }
+
+                    if cpu.stall_cycles > 0 {
+                        let stall = cpu.stall_cycles;
+                        cpu.stall_cycles = 0;
+                        cpu.cycles += stall as u64;
+                        for i in 0..(stall * 3) {
+                            let total_m_cycles = cpu.cycles * 3 + i as u64;
+                            let nt = &bus.nametable_vram;
+                            let mapper = bus.mapper.as_mut();
+                            bus.ppu.tick(nt, mapper);
+                            if total_m_cycles % 3 == 0 {
+                                bus.apu.triangle_tick();
+                            }
+                            if total_m_cycles % 6 == 0 {
+                                bus.apu.tick();
+                            }
+                        }
+                    }
+
                     if bus.ppu.nmi_pending {
                         bus.ppu.nmi_pending = false;
                         cpu.nmi(&mut bus);
+                    }
+
+                    if bus.apu.irq() || bus.mapper.poll_irq() {
+                        cpu.request_irq();
                     }
 
                     let cycles_before = cpu.cycles;
                     cpu.step(&mut bus);
                     let dt = (cpu.cycles - cycles_before) as u32;
 
-                    for _ in 0..(dt * 3) {
+                    for i in 0..(dt * 3) {
+                        let total_m_cycles = cycles_before * 3 + i as u64;
                         let nt = &bus.nametable_vram;
                         let mapper = bus.mapper.as_mut();
                         bus.ppu.tick(nt, mapper);
-                    }
-                    if bus.mapper.poll_irq() {
-                        cpu.request_irq();
+                        if total_m_cycles % 3 == 0 {
+                            bus.apu.triangle_tick();
+                        }
+                        if total_m_cycles % 6 == 0 {
+                            bus.apu.tick();
+                        }
                     }
 
                     // OAM DMA — spec §7. Hardware stalls CPU 513 cycles (514 on odd CPU
@@ -174,14 +222,20 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                             let oam_idx = oam_addr.wrapping_add(i as u8) as usize;
                             bus.ppu.oam[oam_idx] = val;
                         }
-                        cpu.cycles += 513;
-                        for _ in 0..(513 * 3) {
+                        let stall = 513;
+                        let cycles_before_dma = cpu.cycles;
+                        cpu.cycles += stall as u64;
+                        for i in 0..(stall * 3) {
+                            let total_m_cycles = cycles_before_dma * 3 + i as u64;
                             let nt = &bus.nametable_vram;
                             let mapper = bus.mapper.as_mut();
                             bus.ppu.tick(nt, mapper);
-                        }
-                        if bus.mapper.poll_irq() {
-                            cpu.request_irq();
+                            if total_m_cycles % 3 == 0 {
+                                bus.apu.triangle_tick();
+                            }
+                            if total_m_cycles % 6 == 0 {
+                                bus.apu.tick();
+                            }
                         }
                     }
                 }
@@ -194,7 +248,21 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
             }
 
             Event::MainEventsCleared => {
-                window.request_redraw();
+                // Only request a redraw (i.e. run a frame's worth of emulation)
+                // when the wall-clock deadline for the next NTSC frame is reached.
+                // This is what bounds emulator speed to real-time and keeps the
+                // APU sample production rate matched to the audio device.
+                let now = std::time::Instant::now();
+                if now >= next_frame {
+                    // If we fell behind by more than a frame (e.g. resize stall),
+                    // resync rather than spin-catching up forever.
+                    if now > next_frame + frame_duration {
+                        next_frame = now + frame_duration;
+                    } else {
+                        next_frame += frame_duration;
+                    }
+                    window.request_redraw();
+                }
             }
 
             _ => {}
