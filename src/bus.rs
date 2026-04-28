@@ -11,7 +11,7 @@
 ///   $6000–$7FFF  WRAM (8 KB)
 ///   $8000–$FFFF  Routed through mapper
 
-use crate::cartridge::{Mapper, Mirroring};
+use crate::cartridge::{Cartridge, Mapper, Mirroring};
 use crate::ppu::Ppu;
 
 const RAM_SIZE: usize = 2048;
@@ -19,12 +19,13 @@ const RAM_MASK: u16 = 0x07FF;
 const RAM_END: u16 = 0x1FFF;
 const WRAM_START: u16 = 0x6000;
 const WRAM_END: u16 = 0x7FFF;
-const WRAM_SIZE: usize = 8192;
 
 pub struct Bus {
     ram: [u8; RAM_SIZE],
-    /// Work RAM at $6000–$7FFF.
-    wram: [u8; WRAM_SIZE],
+    /// Work RAM at $6000–$7FFF. Size comes from the cartridge header
+    /// (PRG-RAM + PRG-NVRAM); empty `Vec` means the cartridge has no WRAM
+    /// and reads return open bus.
+    wram: Vec<u8>,
     /// Physical nametable VRAM — 2 KB, shared by PPU slots $2000/$2400/$2800/$2C00
     /// according to the cartridge's mirroring mode.
     pub nametable_vram: [u8; 2048],
@@ -38,12 +39,12 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn new(mapper: Box<dyn Mapper>) -> Self {
+    pub fn new(cart: Cartridge) -> Self {
         Self {
             ram: [0u8; RAM_SIZE],
-            wram: [0u8; WRAM_SIZE],
+            wram: vec![0u8; cart.prg_ram_size],
             nametable_vram: [0u8; 2048],
-            mapper,
+            mapper: cart.mapper,
             ppu: Ppu::new(),
             oam_dma_pending: false,
             oam_dma_page: 0,
@@ -64,7 +65,14 @@ impl Bus {
             }
             0x4000..=0x4017 => 0xFF, // APU/IO stub
             0x4018..=0x5FFF => 0xFF, // open bus
-            WRAM_START..=WRAM_END => self.wram[(addr - WRAM_START) as usize],
+            WRAM_START..=WRAM_END => {
+                if self.wram.is_empty() {
+                    0xFF
+                } else {
+                    let len = self.wram.len();
+                    self.wram[((addr - WRAM_START) as usize) % len]
+                }
+            }
             0x8000..=0xFFFF => self.mapper.cpu_read(addr).unwrap_or(0xFF),
         }
     }
@@ -104,7 +112,12 @@ impl Bus {
             }
             0x4000..=0x4013 | 0x4015..=0x4017 => {} // APU/IO stub
             0x4018..=0x5FFF => {} // open bus
-            WRAM_START..=WRAM_END => self.wram[(addr - WRAM_START) as usize] = val,
+            WRAM_START..=WRAM_END => {
+                if !self.wram.is_empty() {
+                    let len = self.wram.len();
+                    self.wram[((addr - WRAM_START) as usize) % len] = val;
+                }
+            }
             0x8000..=0xFFFF => self.mapper.cpu_write(addr, val),
         }
     }

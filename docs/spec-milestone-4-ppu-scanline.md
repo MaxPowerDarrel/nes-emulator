@@ -41,53 +41,54 @@ Additionally:
 
 ---
 
-## 2. Master Loop Ordering Fix
+## 2. Master Loop Ordering and Timing
 
-**Source**: [NESDev PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) — "The PPU renders
-pixels during H-blank of the CPU."
+**Source**: [NESDev PPU rendering](https://www.nesdev.org/wiki/PPU_rendering),
+[NESDev Cycle reference](https://www.nesdev.org/wiki/Cycle_reference_chart) — PPU runs at 3× CPU.
 
-Milestone 3 stepped the CPU before ticking the PPU. This is inverted from hardware and will
-cause NMI to fire one CPU instruction late. Fix the main loop to tick PPU first:
-
-```rust
-// In run_windowed — each iteration of the master clock:
-loop {
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-
-    // Check and latch NMI before CPU step (§3).
-    if bus.ppu.nmi_pending {
-        bus.ppu.nmi_pending = false;
-        cpu.nmi(&mut bus);
-    }
-
-    cpu.step(&mut bus);
-
-    if bus.ppu.frame_complete { break; }
-}
-```
-
-`cpu.step` returns CPU cycles; the loop above runs one *CPU instruction* per iteration, ticking
-the PPU 3 times per CPU cycle consumed. Adjust to:
+Hardware ratio: **3 PPU dots per 1 CPU cycle**. Each iteration of the master loop runs one CPU
+instruction, then advances the PPU by `cycles_consumed * 3` ticks. Ticking PPU per *instruction*
+(a fixed 3 ticks regardless of length) makes the PPU run at ~1/3 the correct rate relative to the
+CPU and produces visibly janky animation.
 
 ```rust
 while !bus.ppu.frame_complete {
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-    bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
-
+    // 1. Service pending NMI between instructions (set by a previous PPU tick).
     if bus.ppu.nmi_pending {
         bus.ppu.nmi_pending = false;
         cpu.nmi(&mut bus);
     }
 
+    // 2. Step CPU one instruction.
+    let cycles_before = cpu.cycles;
     cpu.step(&mut bus);
+    let dt = (cpu.cycles - cycles_before) as u32;
+
+    // 3. Tick PPU 3× per CPU cycle to maintain the hardware ratio. May set nmi_pending
+    //    (consumed at the top of the next iteration).
+    for _ in 0..(dt * 3) {
+        bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
+    }
+
+    // 4. Service OAM DMA if pending; the PPU keeps clocking through the 513-cycle stall.
+    if bus.oam_dma_pending {
+        // ... copy 256 bytes ...
+        cpu.cycles += 513;
+        for _ in 0..(513 * 3) {
+            bus.ppu.tick(&bus.nametable_vram, bus.mapper.as_ref());
+        }
+    }
 }
 ```
 
-This is still not sample-accurate (each `cpu.step` consumes N cycles and the PPU only sees 3 ticks
-regardless), but it is the correct ordering for NMI detection and is sufficient for Milestone 4.
+NMI is checked at the start of each iteration, immediately after the previous instruction's PPU
+ticks settled. Real hardware polls the NMI line during the second-to-last cycle of each
+instruction; checking between instructions is one cycle late at most and is sufficient for all
+known NMI-driven game logic.
+
+This is not cycle-perfect (NMI dispatch and the next instruction are batched into one PPU advance
+rather than interleaved), but it is correct in the only thing that visibly matters at this
+milestone: the 3:1 PPU/CPU dot-to-cycle ratio.
 
 ---
 
@@ -612,6 +613,6 @@ No new source files required. All changes are within:
 - [ ] `sprite_zero_hit` and `sprite_overflow` cleared at pre-render dot 1.
 - [ ] OAM DMA: writing $4014 copies 256 bytes from CPU page into OAM; CPU stalled 513 cycles.
 - [ ] PPUMASK bit 4 (show sprites) and bit 2 (sprites in left 8px) respected.
-- [ ] Master loop ticks PPU first, then services NMI, then steps CPU.
+- [ ] Master loop services NMI between instructions; PPU advances `cycles_consumed * 3` ticks per CPU step (and per OAM DMA stall) to maintain the hardware 3:1 dot-to-cycle ratio.
 - [ ] Super Mario Bros 1 boots, title screen renders with correct background scroll and visible sprites.
 - [ ] No `unwrap()` in PPU, bus, CPU, or main loop core paths.

@@ -27,10 +27,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rom_data = fs::read(rom_path)
         .map_err(|e| format!("Failed to read ROM '{}': {}", rom_path, e))?;
 
-    let mapper = cartridge::from_bytes(&rom_data)
+    let cart = cartridge::from_bytes(&rom_data)
         .map_err(|e| format!("Cartridge error: {}", e))?;
 
-    let mut bus = Bus::new(mapper);
+    let mut bus = Bus::new(cart);
     let mut cpu = Cpu::new();
 
     if nestest_mode {
@@ -88,27 +88,34 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
 
             Event::RedrawRequested(_) => {
                 // Master clock loop — spec milestone 4 §2.
-                // Each iteration: tick PPU 3 times first, service NMI/DMA, then step CPU.
-                // PPU-first ordering ensures NMI is detected at the correct CPU instruction
-                // boundary after VBlank starts (scanline 241, dot 1).
+                //
+                // Per-iteration order:
+                //   1. Service pending NMI (edge-triggered, set during last tick batch).
+                //   2. Step CPU one instruction.
+                //   3. Tick PPU `cycles * 3` times to maintain the hardware 3:1 ratio.
+                //   4. Service OAM DMA if pending; tick PPU through the 513-cycle stall.
+                //
+                // Ticking PPU per CPU cycle (not per instruction) keeps game logic and
+                // visual timing in sync — otherwise the CPU runs ~3× faster than the PPU
+                // and animations appear sped up / janky.
                 while !bus.ppu.frame_complete {
-                    {
-                        let nt = &bus.nametable_vram;
-                        let mapper = bus.mapper.as_ref();
-                        bus.ppu.tick(nt, mapper);
+                    if bus.ppu.nmi_pending {
+                        bus.ppu.nmi_pending = false;
+                        cpu.nmi(&mut bus);
                     }
-                    {
-                        let nt = &bus.nametable_vram;
-                        let mapper = bus.mapper.as_ref();
-                        bus.ppu.tick(nt, mapper);
-                    }
-                    {
+
+                    let cycles_before = cpu.cycles;
+                    cpu.step(&mut bus);
+                    let dt = (cpu.cycles - cycles_before) as u32;
+
+                    for _ in 0..(dt * 3) {
                         let nt = &bus.nametable_vram;
                         let mapper = bus.mapper.as_ref();
                         bus.ppu.tick(nt, mapper);
                     }
 
-                    // OAM DMA — spec §7. Performed before NMI/CPU step.
+                    // OAM DMA — spec §7. Hardware stalls CPU 513 cycles (514 on odd CPU
+                    // cycle); the PPU keeps clocking through the stall.
                     if bus.oam_dma_pending {
                         bus.oam_dma_pending = false;
                         let page = (bus.oam_dma_page as u16) << 8;
@@ -118,17 +125,13 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                             let oam_idx = oam_addr.wrapping_add(i as u8) as usize;
                             bus.ppu.oam[oam_idx] = val;
                         }
-                        // Hardware stalls CPU 513 cycles (514 on odd CPU cycle).
                         cpu.cycles += 513;
+                        for _ in 0..(513 * 3) {
+                            let nt = &bus.nametable_vram;
+                            let mapper = bus.mapper.as_ref();
+                            bus.ppu.tick(nt, mapper);
+                        }
                     }
-
-                    // Service pending NMI (edge-triggered by the PPU).
-                    if bus.ppu.nmi_pending {
-                        bus.ppu.nmi_pending = false;
-                        cpu.nmi(&mut bus);
-                    }
-
-                    cpu.step(&mut bus);
                 }
                 bus.ppu.frame_complete = false;
 

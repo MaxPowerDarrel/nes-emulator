@@ -346,6 +346,20 @@ impl Ppu {
             self.frame_complete = false;
         }
 
+        // Render one pixel during visible scanlines.
+        //
+        // Must happen BEFORE the Loopy v scheduler. At dots where dot % 8 == 0 (screen
+        // x = 7, 15, …, 255) the scheduler increments coarse_x to point at the next
+        // tile; if we rendered after that, every 8th column would sample the wrong
+        // tile. Real hardware avoids this with shift registers — fetch advances v
+        // while rendering reads from already-shifted data — but for the simplified
+        // per-pixel path, render-then-advance produces equivalent output.
+        if self.scanline < 240 && self.dot >= 1 && self.dot <= 256 {
+            let px = self.dot - 1;
+            let py = self.scanline;
+            self.render_pixel(py, px, nametable_vram, mapper);
+        }
+
         // Loopy v register schedule — only when rendering enabled (spec §4).
         if self.rendering_enabled() {
             let visible = self.scanline < 240;
@@ -361,9 +375,12 @@ impl Ppu {
                 if self.dot == 257 {
                     self.reload_horizontal();
                 }
-                if self.dot == 328 || self.dot == 336 {
-                    self.increment_coarse_x();
-                }
+                // Dots 328/336 pre-fetch increments are omitted here.
+                // Real hardware uses shift registers: these increments advance v to the
+                // third pre-fetched tile while the first two are already in the shift
+                // register. Since render_pixel reads v directly (no shift registers), the
+                // increments would leave coarse_x 2 tiles ahead at the start of every
+                // scanline, producing a constant 16-pixel horizontal offset.
             }
 
             if prerender && self.dot >= 280 && self.dot <= 304 {
@@ -378,13 +395,6 @@ impl Ppu {
                     self.evaluate_sprites(0);
                 }
             }
-        }
-
-        // Render one pixel during visible scanlines.
-        if self.scanline < 240 && self.dot >= 1 && self.dot <= 256 {
-            let px = self.dot - 1;
-            let py = self.scanline;
-            self.render_pixel(py, px, nametable_vram, mapper);
         }
 
         // VBlank start: scanline 241, dot 1.
@@ -516,19 +526,33 @@ impl Ppu {
         let (bg_palette_byte, bg_opaque) = if !show_bg || (x < 8 && !show_bg_left) {
             (self.palette_ram[0], false)
         } else {
-            let fine_x_pixel = ((x as u16 + self.x as u16) & 0x07) as u8;
+            // Fine-x may cross a tile boundary within an 8-pixel group.
+            // coarse_x (in v) increments every 8 screen pixels, but fine_x shifts the
+            // window so the crossing happens at pixel (8 - fine_x), not at pixel 8.
+            // When shifted_x >= 8, advance to the next tile without mutating v.
+            let shifted_x = (x as u8 % 8) + self.x;
+            let (render_v, fine_x_pixel) = if shifted_x >= 8 {
+                let next_v = if self.v & 0x001F == 31 {
+                    (self.v & !0x001F) ^ 0x0400
+                } else {
+                    self.v + 1
+                };
+                (next_v, shifted_x - 8)
+            } else {
+                (self.v, shifted_x)
+            };
 
-            let nt_addr = 0x2000 | (self.v & 0x0FFF);
+            let nt_addr = 0x2000 | (render_v & 0x0FFF);
             let tile_id = self.ppu_read_addr(nt_addr, nametable_vram, mapper) as u16;
 
             let at_addr = 0x23C0
-                | (self.v & 0x0C00)
-                | ((self.v >> 4) & 0x0038)
-                | ((self.v >> 2) & 0x0007);
+                | (render_v & 0x0C00)
+                | ((render_v >> 4) & 0x0038)
+                | ((render_v >> 2) & 0x0007);
             let attr_byte = self.ppu_read_addr(at_addr, nametable_vram, mapper);
 
-            let x_quad = ((self.v >> 1) & 1) as u8;
-            let y_quad = ((self.v >> 6) & 1) as u8;
+            let x_quad = ((render_v >> 1) & 1) as u8;
+            let y_quad = ((render_v >> 6) & 1) as u8;
             let shift = (y_quad * 2 + x_quad) * 2;
             let palette_select = ((attr_byte >> shift) & 0x03) as usize;
 
