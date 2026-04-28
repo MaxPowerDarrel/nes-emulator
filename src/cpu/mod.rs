@@ -46,7 +46,7 @@ impl Cpu {
     }
 
     /// Load the reset vector and set PC. Consumes 7 cycles (reset sequence).
-    pub fn reset(&mut self, bus: &Bus) {
+    pub fn reset(&mut self, bus: &mut Bus) {
         self.pc = bus.read_u16(0xFFFC);
         self.sp = 0xFD;
         self.p = 0x24;
@@ -143,7 +143,7 @@ impl Cpu {
 
     /// Format one instruction at `addr` for nestest-style log output.
     /// Does not advance any CPU state.
-    pub fn disassemble(&self, bus: &Bus, addr: u16) -> String {
+    pub fn disassemble(&self, bus: &mut Bus, addr: u16) -> String {
         let opcode = bus.read(addr);
         let b1 = bus.read(addr.wrapping_add(1));
         let b2 = bus.read(addr.wrapping_add(2));

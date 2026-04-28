@@ -36,7 +36,7 @@ pub struct Operand {
 impl Cpu {
     /// Resolve the addressing mode and advance PC past the operand bytes.
     /// Returns an `Operand`. For Implied/Accumulator, addr is 0 and unused.
-    pub fn resolve_operand(&mut self, bus: &Bus, mode: AddrMode) -> Operand {
+    pub fn resolve_operand(&mut self, bus: &mut Bus, mode: AddrMode) -> Operand {
         match mode {
             AddrMode::Implied | AddrMode::Accumulator => Operand {
                 addr: 0,
