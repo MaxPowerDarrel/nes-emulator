@@ -1,6 +1,7 @@
 mod bus;
 mod cartridge;
 mod cpu;
+mod input;
 mod ppu;
 
 use std::env;
@@ -11,7 +12,8 @@ use bus::Bus;
 use cpu::Cpu;
 use pixels::{Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
+use std::collections::HashSet;
+use winit::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 
@@ -66,6 +68,10 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
         Pixels::new(256, 240, surface_texture)?
     };
 
+    // Track held keys so two keys bound to the same button work independently.
+    // Spec: https://www.nesdev.org/wiki/Standard_controller — key mapping §4
+    let mut held_keys: HashSet<VirtualKeyCode> = HashSet::new();
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -75,6 +81,46 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                 ..
             } => {
                 *control_flow = ControlFlow::Exit;
+            }
+
+            Event::WindowEvent {
+                event:
+                    WindowEvent::KeyboardInput {
+                        input:
+                            winit::event::KeyboardInput {
+                                virtual_keycode: Some(key),
+                                state,
+                                ..
+                            },
+                        ..
+                    },
+                ..
+            } => {
+                let pressed = state == ElementState::Pressed;
+                if pressed {
+                    held_keys.insert(key);
+                } else {
+                    held_keys.remove(&key);
+                }
+
+                // Recompute controller 1 button byte from all held keys.
+                // Spec: https://www.nesdev.org/wiki/Standard_controller — key mapping §4
+                let mut buttons = 0u8;
+                for k in &held_keys {
+                    let mask = match k {
+                        VirtualKeyCode::Z | VirtualKeyCode::K => input::BTN_A,
+                        VirtualKeyCode::X | VirtualKeyCode::J => input::BTN_B,
+                        VirtualKeyCode::RShift | VirtualKeyCode::U => input::BTN_SELECT,
+                        VirtualKeyCode::Return | VirtualKeyCode::I => input::BTN_START,
+                        VirtualKeyCode::Up | VirtualKeyCode::W => input::BTN_UP,
+                        VirtualKeyCode::Down | VirtualKeyCode::S => input::BTN_DOWN,
+                        VirtualKeyCode::Left | VirtualKeyCode::A => input::BTN_LEFT,
+                        VirtualKeyCode::Right | VirtualKeyCode::D => input::BTN_RIGHT,
+                        _ => 0,
+                    };
+                    buttons |= mask;
+                }
+                bus.controller1.buttons = buttons;
             }
 
             Event::WindowEvent {

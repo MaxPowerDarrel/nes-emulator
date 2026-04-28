@@ -12,6 +12,7 @@
 ///   $8000–$FFFF  Routed through mapper
 
 use crate::cartridge::{Cartridge, Mapper, Mirroring};
+use crate::input::Controller;
 use crate::ppu::Ppu;
 
 const RAM_SIZE: usize = 2048;
@@ -36,6 +37,9 @@ pub struct Bus {
     /// Spec: https://www.nesdev.org/wiki/PPU_registers#OAM_DMA_.28.244014.29_write
     pub oam_dma_pending: bool,
     pub oam_dma_page: u8,
+
+    pub controller1: Controller,
+    pub controller2: Controller,
 }
 
 impl Bus {
@@ -48,6 +52,8 @@ impl Bus {
             ppu: Ppu::new(),
             oam_dma_pending: false,
             oam_dma_page: 0,
+            controller1: Controller::new(),
+            controller2: Controller::new(),
         }
     }
 
@@ -63,7 +69,9 @@ impl Bus {
                 let mapper = self.mapper.as_ref();
                 self.ppu.register_read(reg, nt, mapper)
             }
-            0x4000..=0x4017 => 0xFF, // APU/IO stub
+            0x4016 => self.controller1.read(),
+            0x4017 => self.controller2.read(),
+            0x4000..=0x4015 => 0xFF, // APU/IO stub
             0x4018..=0x5FFF => 0xFF, // open bus
             WRAM_START..=WRAM_END => {
                 if self.wram.is_empty() {
@@ -110,7 +118,13 @@ impl Bus {
                 self.oam_dma_pending = true;
                 self.oam_dma_page = val;
             }
-            0x4000..=0x4013 | 0x4015..=0x4017 => {} // APU/IO stub
+            0x4016 => {
+                // Strobe line is shared — both controllers see the same write.
+                // Spec: https://www.nesdev.org/wiki/Standard_controller#Output_.284016_write.29
+                self.controller1.write_strobe(val);
+                self.controller2.write_strobe(val);
+            }
+            0x4000..=0x4013 | 0x4015 | 0x4017 => {} // APU/IO stub
             0x4018..=0x5FFF => {} // open bus
             WRAM_START..=WRAM_END => {
                 if !self.wram.is_empty() {
