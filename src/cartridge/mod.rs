@@ -9,8 +9,16 @@
 /// Header (16 bytes) — see docs/spec-nes2-rom-support.md for full table.
 
 pub mod mapper0;
+pub mod mapper1;
+pub mod mapper2;
+pub mod mapper3;
+pub mod mapper4;
 
 use mapper0::Mapper0;
+use mapper1::Mapper1;
+use mapper2::Mapper2;
+use mapper3::Mapper3;
+use mapper4::Mapper4;
 
 const INES_MAGIC: &[u8; 4] = b"NES\x1A";
 const HEADER_SIZE: usize = 16;
@@ -31,6 +39,10 @@ pub enum Mirroring {
     Vertical,
     /// Cartridge supplies its own VRAM (flags6 bit 3). No mapper in scope uses it yet.
     FourScreen,
+    /// All four nametable slots map to the lower 1 KB bank (MMC1 single-screen mode 0).
+    SingleScreenLower,
+    /// All four nametable slots map to the upper 1 KB bank (MMC1 single-screen mode 1).
+    SingleScreenUpper,
 }
 
 /// ROM file format detected from the header.
@@ -81,7 +93,8 @@ pub struct RomHeader {
 pub trait Mapper {
     fn cpu_read(&self, addr: u16) -> Option<u8>;
     fn cpu_write(&mut self, addr: u16, val: u8);
-    fn ppu_read(&self, addr: u16) -> Option<u8>;
+    /// PPU CHR read. Takes &mut self so mappers (e.g. MMC3) can track A12 transitions.
+    fn ppu_read(&mut self, addr: u16) -> Option<u8>;
     fn ppu_write(&mut self, addr: u16, val: u8);
     #[allow(dead_code)]
     fn mirroring(&self) -> Mirroring;
@@ -94,6 +107,17 @@ pub trait Mapper {
     /// docs/spec-nes2-rom-support.md §10.
     #[allow(dead_code)]
     fn timing(&self) -> CpuTiming { CpuTiming::Ntsc }
+
+    /// Called on every PPU CHR address access. Returns true if the mapper is asserting
+    /// a CPU IRQ this cycle (MMC3 scanline counter). Default: no-op, no IRQ.
+    ///
+    /// Spec: https://www.nesdev.org/wiki/MMC3#IRQ_Specifics
+    fn poll_irq(&mut self) -> bool { false }
+
+    /// Called once per visible/pre-render scanline by the PPU. Used by mappers
+    /// (MMC3) that drive their IRQ counter off the PPU scanline clock in
+    /// non-cycle-accurate fetch emulation. Default: no-op.
+    fn notify_scanline(&mut self) {}
 }
 
 /// Final cartridge produced by `from_bytes` — a built mapper plus enough header
@@ -166,6 +190,10 @@ pub fn from_bytes(data: &[u8]) -> Result<Cartridge, CartridgeError> {
 
     let mapper: Box<dyn Mapper> = match header.mapper {
         0 => Box::new(Mapper0::new(&header, prg_rom, chr_rom)?),
+        1 => Box::new(Mapper1::new(&header, prg_rom, chr_rom)?),
+        2 => Box::new(Mapper2::new(&header, prg_rom, chr_rom)?),
+        3 => Box::new(Mapper3::new(&header, prg_rom, chr_rom)?),
+        4 => Box::new(Mapper4::new(&header, prg_rom, chr_rom)?),
         other => return Err(CartridgeError::UnsupportedMapper(other)),
     };
 

@@ -40,6 +40,11 @@ pub struct Bus {
 
     pub controller1: Controller,
     pub controller2: Controller,
+
+    /// Set by a mapper (via `poll_irq`) when it wants to assert a CPU IRQ.
+    /// Consumed by the main loop to call `cpu.request_irq()`.
+    #[allow(dead_code)]
+    pub irq_pending: bool,
 }
 
 impl Bus {
@@ -54,6 +59,7 @@ impl Bus {
             oam_dma_page: 0,
             controller1: Controller::new(),
             controller2: Controller::new(),
+            irq_pending: false,
         }
     }
 
@@ -64,9 +70,9 @@ impl Bus {
             0x0000..=RAM_END => self.ram[(addr & RAM_MASK) as usize],
             0x2000..=0x3FFF => {
                 let reg = (addr & 0x07) as u8;
-                // Split-field borrow: ppu (mut) vs nametable_vram + mapper (shared).
+                // Split-field borrow: ppu (mut) vs nametable_vram (shared) vs mapper (mut).
                 let nt = &self.nametable_vram;
-                let mapper = self.mapper.as_ref();
+                let mapper = self.mapper.as_mut();
                 self.ppu.register_read(reg, nt, mapper)
             }
             0x4016 => self.controller1.read(),
@@ -149,7 +155,7 @@ impl Bus {
     // test paths.
 
     #[allow(dead_code)]
-    pub fn ppu_read(&self, addr: u16) -> u8 {
+    pub fn ppu_read(&mut self, addr: u16) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => self.mapper.ppu_read(addr).unwrap_or(0),
@@ -191,9 +197,11 @@ pub(crate) fn nametable_index(addr: u16, mirroring: Mirroring) -> usize {
     let table = addr / 0x400;
     let offset = (addr % 0x400) as usize;
     let bank = match mirroring {
-        Mirroring::Horizontal => table / 2, // slots 0,1 → bank A; 2,3 → bank B
-        Mirroring::Vertical => table & 1,   // slots 0,2 → bank A; 1,3 → bank B
-        Mirroring::FourScreen => table & 1, // no cart VRAM for NROM; treat as vertical
+        Mirroring::Horizontal => table / 2,       // slots 0,1 → bank A; 2,3 → bank B
+        Mirroring::Vertical => table & 1,         // slots 0,2 → bank A; 1,3 → bank B
+        Mirroring::FourScreen => table & 1,       // no cart VRAM for NROM; treat as vertical
+        Mirroring::SingleScreenLower => 0,        // all slots → bank A
+        Mirroring::SingleScreenUpper => 1,        // all slots → bank B
     };
     (bank as usize) * 0x400 + offset
 }

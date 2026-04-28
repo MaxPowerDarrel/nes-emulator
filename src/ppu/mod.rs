@@ -122,7 +122,7 @@ impl Ppu {
 
     /// Read from the PPU address space.
     /// Routes: $0000–$1FFF → mapper CHR; $2000–$3EFF → nametable VRAM; $3F00–$3FFF → palette RAM.
-    fn ppu_read_addr(&self, addr: u16, nametable_vram: &[u8; 2048], mapper: &dyn Mapper) -> u8 {
+    fn ppu_read_addr(&mut self, addr: u16, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => mapper.ppu_read(addr).unwrap_or(0),
@@ -161,7 +161,7 @@ impl Ppu {
         &mut self,
         reg: u8,
         nametable_vram: &[u8; 2048],
-        mapper: &dyn Mapper,
+        mapper: &mut dyn Mapper,
     ) -> u8 {
         match reg & 0x07 {
             // $2000 PPUCTRL — write-only, return open bus
@@ -320,7 +320,7 @@ impl Ppu {
     /// Advance the PPU by one dot.
     ///
     /// Source: https://www.nesdev.org/wiki/PPU_rendering
-    pub fn tick(&mut self, nametable_vram: &[u8; 2048], mapper: &dyn Mapper) {
+    pub fn tick(&mut self, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) {
         // NTSC odd-frame dot skip: pre-render scanline is 340 dots when rendering enabled.
         let odd_skip = self.odd_frame
             && self.rendering_enabled()
@@ -387,6 +387,15 @@ impl Ppu {
                 self.reload_vertical();
             }
 
+            // MMC3-style scanline IRQ clock. On real hardware the counter is driven
+            // by A12 rising edges during sprite pattern fetches (dots 260–320).
+            // Our PPU doesn't model the real fetch order, so we clock the mapper
+            // once per visible/pre-render scanline at dot 260 — the canonical
+            // sprite-fetch timing. Only when rendering is enabled (this branch).
+            if (visible || prerender) && self.dot == 260 {
+                mapper.notify_scanline();
+            }
+
             // Sprite evaluation for the next scanline at dot 257 (spec §5b).
             if self.dot == 257 {
                 if visible {
@@ -447,11 +456,11 @@ impl Ppu {
 
     /// Returns (palette_byte, opaque, priority_in_front, is_sprite0).
     fn sprite_pixel_at(
-        &self,
+        &mut self,
         x: u16,
         y: u16,
         nametable_vram: &[u8; 2048],
-        mapper: &dyn Mapper,
+        mapper: &mut dyn Mapper,
     ) -> (u8, bool, bool, bool) {
         if !self.show_sprites() {
             return (0, false, false, false);
@@ -518,7 +527,7 @@ impl Ppu {
     // ── Background + sprite pixel render (spec §4f, §5d) ────────────────────
 
     /// Render one pixel at screen position (y, x), mixing background and sprites.
-    fn render_pixel(&mut self, y: u16, x: u16, nametable_vram: &[u8; 2048], mapper: &dyn Mapper) {
+    fn render_pixel(&mut self, y: u16, x: u16, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) {
         // Background fetch from v + fine X.
         let show_bg = self.show_background();
         let show_bg_left = self.ppumask & 0x02 != 0;

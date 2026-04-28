@@ -156,8 +156,11 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
 
                     for _ in 0..(dt * 3) {
                         let nt = &bus.nametable_vram;
-                        let mapper = bus.mapper.as_ref();
+                        let mapper = bus.mapper.as_mut();
                         bus.ppu.tick(nt, mapper);
+                    }
+                    if bus.mapper.poll_irq() {
+                        cpu.request_irq();
                     }
 
                     // OAM DMA — spec §7. Hardware stalls CPU 513 cycles (514 on odd CPU
@@ -174,8 +177,11 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                         cpu.cycles += 513;
                         for _ in 0..(513 * 3) {
                             let nt = &bus.nametable_vram;
-                            let mapper = bus.mapper.as_ref();
+                            let mapper = bus.mapper.as_mut();
                             bus.ppu.tick(nt, mapper);
+                        }
+                        if bus.mapper.poll_irq() {
+                            cpu.request_irq();
                         }
                     }
                 }

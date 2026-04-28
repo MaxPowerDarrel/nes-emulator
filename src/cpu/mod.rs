@@ -29,6 +29,9 @@ pub struct Cpu {
     pub p: u8,
     /// Total master cycles elapsed (each CPU cycle = 1 here; caller multiplies by 3).
     pub cycles: u64,
+    /// Pending maskable interrupt — set by `request_irq()`, honoured at start of next instruction
+    /// if the I flag is clear. Spec: https://www.nesdev.org/wiki/CPU_interrupts
+    pub irq_pending: bool,
 }
 
 impl Cpu {
@@ -42,7 +45,14 @@ impl Cpu {
             pc: 0,
             p: 0x24, // I set, bit 5 always set
             cycles: 0,
+            irq_pending: false,
         }
+    }
+
+    /// Assert a maskable IRQ. The interrupt will be serviced at the start of the next
+    /// instruction if the I flag is clear.
+    pub fn request_irq(&mut self) {
+        self.irq_pending = true;
     }
 
     /// Load the reset vector and set PC. Consumes 7 cycles (reset sequence).
@@ -142,8 +152,32 @@ impl Cpu {
 
     // ── Main step ─────────────────────────────────────────────────────────────
 
+    /// Service a maskable interrupt (IRQ).
+    ///
+    /// Sequence mirrors NMI but loads the IRQ vector at $FFFE/$FFFF and sets B=0.
+    /// Spec: https://www.nesdev.org/wiki/CPU_interrupts
+    pub fn irq(&mut self, bus: &mut Bus) {
+        let pc_hi = (self.pc >> 8) as u8;
+        let pc_lo = (self.pc & 0xFF) as u8;
+        self.stack_push(bus, pc_hi);
+        self.stack_push(bus, pc_lo);
+        let pushed_p = (self.p & !0x10) | 0x20;
+        self.stack_push(bus, pushed_p);
+        self.p |= 0x04; // set I flag
+        let lo = bus.read(0xFFFE) as u16;
+        let hi = bus.read(0xFFFF) as u16;
+        self.pc = (hi << 8) | lo;
+        self.cycles += 7;
+    }
+
     /// Execute one instruction. Returns total CPU cycles consumed.
     pub fn step(&mut self, bus: &mut Bus) -> u8 {
+        // Service pending IRQ before fetch if I flag is clear.
+        if self.irq_pending && self.p & 0x04 == 0 {
+            self.irq_pending = false;
+            self.irq(bus);
+        }
+
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
 

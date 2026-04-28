@@ -69,7 +69,7 @@ impl Mapper for Mapper0 {
         // NROM has no registers; writes to PRG window are silently ignored.
     }
 
-    fn ppu_read(&self, addr: u16) -> Option<u8> {
+    fn ppu_read(&mut self, addr: u16) -> Option<u8> {
         if addr > CHR_MASK {
             return None;
         }
