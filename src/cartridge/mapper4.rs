@@ -1,6 +1,6 @@
-/// Mapper 4 — MMC3 (TxROM). Switchable PRG/CHR banks with scanline IRQ counter.
-///
-/// Spec: https://www.nesdev.org/wiki/MMC3
+//! Mapper 4 — MMC3 (TxROM). Switchable PRG/CHR banks with scanline IRQ counter.
+//!
+//! Spec: https://www.nesdev.org/wiki/MMC3
 
 use super::{CartridgeError, CpuTiming, Mapper, Mirroring, RomHeader};
 
@@ -46,12 +46,20 @@ impl Mapper4 {
             return Err(CartridgeError::TooShort);
         }
         let (chr, chr_ram) = if chr_rom.is_empty() {
-            let size = if header.chr_ram_size > 0 { header.chr_ram_size } else { 8 * 1024 };
+            let size = if header.chr_ram_size > 0 {
+                header.chr_ram_size
+            } else {
+                8 * 1024
+            };
             (vec![0u8; size], true)
         } else {
             (chr_rom, false)
         };
-        let prg_ram_size = if header.prg_ram_size > 0 { header.prg_ram_size } else { 8 * 1024 };
+        let prg_ram_size = if header.prg_ram_size > 0 {
+            header.prg_ram_size
+        } else {
+            8 * 1024
+        };
         Ok(Self {
             prg_rom,
             chr,
@@ -74,10 +82,16 @@ impl Mapper4 {
         })
     }
 
-    fn prg_mode(&self) -> u8 { (self.bank_select >> 6) & 0x01 }
-    fn chr_mode(&self) -> u8 { (self.bank_select >> 7) & 0x01 }
+    fn prg_mode(&self) -> u8 {
+        (self.bank_select >> 6) & 0x01
+    }
+    fn chr_mode(&self) -> u8 {
+        (self.bank_select >> 7) & 0x01
+    }
 
-    fn num_prg_banks_8k(&self) -> usize { self.prg_rom.len() / 8192 }
+    fn num_prg_banks_8k(&self) -> usize {
+        self.prg_rom.len() / 8192
+    }
 
     fn prg_addr(&self, addr: u16) -> usize {
         let n = self.num_prg_banks_8k();
@@ -214,11 +228,13 @@ impl Mapper for Mapper4 {
 
     fn cpu_write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled && !self.prg_ram_write_protect && !self.prg_ram.is_empty() {
-                    let idx = ((addr - 0x6000) as usize) % self.prg_ram.len();
-                    self.prg_ram[idx] = val;
-                }
+            0x6000..=0x7FFF
+                if self.prg_ram_enabled
+                    && !self.prg_ram_write_protect
+                    && !self.prg_ram.is_empty() =>
+            {
+                let idx = ((addr - 0x6000) as usize) % self.prg_ram.len();
+                self.prg_ram[idx] = val;
             }
             0x8000..=0x9FFF => {
                 if addr & 0x01 == 0 {
@@ -287,7 +303,9 @@ impl Mapper for Mapper4 {
         self.clock_scanline_counter();
     }
 
-    fn mirroring(&self) -> Mirroring { self.mirroring }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
 
     fn poll_irq(&mut self) -> bool {
         let pending = self.irq_pending;
@@ -295,6 +313,10 @@ impl Mapper for Mapper4 {
         pending
     }
 
-    fn submapper(&self) -> u8 { self.submapper }
-    fn timing(&self) -> CpuTiming { self.timing }
+    fn submapper(&self) -> u8 {
+        self.submapper
+    }
+    fn timing(&self) -> CpuTiming {
+        self.timing
+    }
 }

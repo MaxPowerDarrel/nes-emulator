@@ -1,6 +1,6 @@
-/// Mapper 3 — CNROM. Fixed PRG, switchable 8 KB CHR bank.
-///
-/// Spec: https://www.nesdev.org/wiki/INES_Mapper_003
+//! Mapper 3 — CNROM. Fixed PRG, switchable 8 KB CHR bank.
+//!
+//! Spec: https://www.nesdev.org/wiki/INES_Mapper_003
 
 use super::{CartridgeError, CpuTiming, Mapper, Mirroring, RomHeader};
 
@@ -65,7 +65,13 @@ impl Mapper for Mapper3 {
         // CHR-ROM is read-only
     }
 
-    fn mirroring(&self) -> Mirroring { self.mirroring }
-    fn submapper(&self) -> u8 { self.submapper }
-    fn timing(&self) -> CpuTiming { self.timing }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+    fn submapper(&self) -> u8 {
+        self.submapper
+    }
+    fn timing(&self) -> CpuTiming {
+        self.timing
+    }
 }

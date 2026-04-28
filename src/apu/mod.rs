@@ -35,7 +35,7 @@ pub struct Apu {
     pub hp440_prev_out: f32,
     pub lp14k_prev_out: f32,
     pub filters_initialized: bool,
-    pub output_buffer: Option<ringbuf::Producer<f32, std::sync::Arc<ringbuf::SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>>,
+    pub output_buffer: Option<crate::audio::AudioProducer>,
 }
 
 impl Apu {
@@ -66,7 +66,7 @@ impl Apu {
     pub fn tick(&mut self) {
         // APU clocked once every 2 CPU cycles.
         // The master clock loop in main.rs calls this every 6 master cycles.
-        
+
         self.pulse1.tick_timer();
         self.pulse2.tick_timer();
         self.noise.tick_timer();
@@ -118,18 +118,18 @@ impl Apu {
             //   For HPF: y[n] = a*(y[n-1] + x[n] - x[n-1]),   a = RC/(RC + dt)
             //   For LPF: y[n] = y[n-1] + a*(x[n] - y[n-1]),   a = dt/(RC + dt)
             let dt = 1.0 / self.sample_rate;
-            let rc_hp90  = 1.0 / (2.0 * std::f32::consts::PI *    90.0);
-            let rc_hp440 = 1.0 / (2.0 * std::f32::consts::PI *   440.0);
+            let rc_hp90 = 1.0 / (2.0 * std::f32::consts::PI * 90.0);
+            let rc_hp440 = 1.0 / (2.0 * std::f32::consts::PI * 440.0);
             let rc_lp14k = 1.0 / (2.0 * std::f32::consts::PI * 14000.0);
-            let a_hp90  = rc_hp90  / (rc_hp90  + dt);
+            let a_hp90 = rc_hp90 / (rc_hp90 + dt);
             let a_hp440 = rc_hp440 / (rc_hp440 + dt);
-            let a_lp14k = dt       / (rc_lp14k + dt);
+            let a_lp14k = dt / (rc_lp14k + dt);
 
             // Seed filter history with the first sample to avoid a startup transient pop.
             if !self.filters_initialized {
-                self.hp90_prev_in   = s;
-                self.hp90_prev_out  = 0.0;
-                self.hp440_prev_in  = s;
+                self.hp90_prev_in = s;
+                self.hp90_prev_out = 0.0;
+                self.hp440_prev_in = s;
                 self.hp440_prev_out = 0.0;
                 self.lp14k_prev_out = s;
                 self.filters_initialized = true;
@@ -137,11 +137,11 @@ impl Apu {
 
             let x = s;
             let y1 = a_hp90 * (self.hp90_prev_out + x - self.hp90_prev_in);
-            self.hp90_prev_in  = x;
+            self.hp90_prev_in = x;
             self.hp90_prev_out = y1;
 
             let y2 = a_hp440 * (self.hp440_prev_out + y1 - self.hp440_prev_in);
-            self.hp440_prev_in  = y1;
+            self.hp440_prev_in = y1;
             self.hp440_prev_out = y2;
 
             let y3 = self.lp14k_prev_out + a_lp14k * (y2 - self.lp14k_prev_out);
@@ -168,13 +168,27 @@ impl Apu {
 
     pub fn read_status(&mut self) -> u8 {
         let mut res = 0;
-        if self.pulse1.length.value > 0 { res |= 0x01; }
-        if self.pulse2.length.value > 0 { res |= 0x02; }
-        if self.triangle.length.value > 0 { res |= 0x04; }
-        if self.noise.length.value > 0 { res |= 0x08; }
-        if self.dmc.bytes_remaining > 0 { res |= 0x10; }
-        if self.frame_counter.irq_flag { res |= 0x40; }
-        if self.dmc.irq_flag { res |= 0x80; }
+        if self.pulse1.length.value > 0 {
+            res |= 0x01;
+        }
+        if self.pulse2.length.value > 0 {
+            res |= 0x02;
+        }
+        if self.triangle.length.value > 0 {
+            res |= 0x04;
+        }
+        if self.noise.length.value > 0 {
+            res |= 0x08;
+        }
+        if self.dmc.bytes_remaining > 0 {
+            res |= 0x10;
+        }
+        if self.frame_counter.irq_flag {
+            res |= 0x40;
+        }
+        if self.dmc.irq_flag {
+            res |= 0x80;
+        }
 
         self.frame_counter.irq_flag = false;
         res
@@ -183,16 +197,16 @@ impl Apu {
     pub fn write_status(&mut self, val: u8) {
         self.pulse1.enabled = (val & 0x01) != 0;
         self.pulse1.length.set_enabled(self.pulse1.enabled);
-        
+
         self.pulse2.enabled = (val & 0x02) != 0;
         self.pulse2.length.set_enabled(self.pulse2.enabled);
-        
+
         self.triangle.enabled = (val & 0x04) != 0;
         self.triangle.length.set_enabled(self.triangle.enabled);
-        
+
         self.noise.enabled = (val & 0x08) != 0;
         self.noise.length.set_enabled(self.noise.enabled);
-        
+
         self.dmc.set_enabled((val & 0x10) != 0);
     }
 
@@ -217,7 +231,8 @@ impl Apu {
                 self.pulse1.timer_period = (self.pulse1.timer_period & 0x0700) | (val as u16);
             }
             0x4003 => {
-                self.pulse1.timer_period = (self.pulse1.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
+                self.pulse1.timer_period =
+                    (self.pulse1.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
                 self.pulse1.length.load(val);
                 self.pulse1.seq_idx = 0;
                 self.pulse1.envelope.start = true;
@@ -241,7 +256,8 @@ impl Apu {
                 self.pulse2.timer_period = (self.pulse2.timer_period & 0x0700) | (val as u16);
             }
             0x4007 => {
-                self.pulse2.timer_period = (self.pulse2.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
+                self.pulse2.timer_period =
+                    (self.pulse2.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
                 self.pulse2.length.load(val);
                 self.pulse2.seq_idx = 0;
                 self.pulse2.envelope.start = true;
@@ -256,7 +272,8 @@ impl Apu {
                 self.triangle.timer_period = (self.triangle.timer_period & 0x0700) | (val as u16);
             }
             0x400B => {
-                self.triangle.timer_period = (self.triangle.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
+                self.triangle.timer_period =
+                    (self.triangle.timer_period & 0x00FF) | (((val & 0x07) as u16) << 8);
                 self.triangle.length.load(val);
                 self.triangle.linear_reload_flag = true;
             }

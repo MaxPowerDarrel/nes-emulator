@@ -1,15 +1,15 @@
-/// NES PPU (Picture Processing Unit) — 2C02.
-///
-/// Spec refs:
-///   https://www.nesdev.org/wiki/PPU
-///   https://www.nesdev.org/wiki/PPU_registers
-///   https://www.nesdev.org/wiki/PPU_scrolling  (Loopy registers)
-///   https://www.nesdev.org/wiki/PPU_rendering
-///   https://www.nesdev.org/wiki/PPU_memory_map
-///   https://www.nesdev.org/wiki/PPU_palettes
-///   https://www.nesdev.org/wiki/PPU_OAM
-///   https://www.nesdev.org/wiki/PPU_sprite_evaluation
-///   https://www.nesdev.org/wiki/NMI
+//! NES PPU (Picture Processing Unit) — 2C02.
+//!
+//! Spec refs:
+//!   https://www.nesdev.org/wiki/PPU
+//!   https://www.nesdev.org/wiki/PPU_registers
+//!   https://www.nesdev.org/wiki/PPU_scrolling  (Loopy registers)
+//!   https://www.nesdev.org/wiki/PPU_rendering
+//!   https://www.nesdev.org/wiki/PPU_memory_map
+//!   https://www.nesdev.org/wiki/PPU_palettes
+//!   https://www.nesdev.org/wiki/PPU_OAM
+//!   https://www.nesdev.org/wiki/PPU_sprite_evaluation
+//!   https://www.nesdev.org/wiki/NMI
 
 pub mod palette;
 
@@ -40,8 +40,8 @@ pub struct Ppu {
     pub oam: [u8; 256],
 
     // Status flags
-    pub nmi_output: bool,    // PPUCTRL bit 7
-    pub nmi_occurred: bool,  // VBlank flag — PPUSTATUS bit 7
+    pub nmi_output: bool,      // PPUCTRL bit 7
+    pub nmi_occurred: bool,    // VBlank flag — PPUSTATUS bit 7
     pub sprite_zero_hit: bool, // PPUSTATUS bit 6
     pub sprite_overflow: bool, // PPUSTATUS bit 5
 
@@ -117,18 +117,25 @@ impl Ppu {
     }
 
     fn bg_pattern_table_base(&self) -> u16 {
-        if self.ppuctrl & 0x10 != 0 { 0x1000 } else { 0x0000 }
+        if self.ppuctrl & 0x10 != 0 {
+            0x1000
+        } else {
+            0x0000
+        }
     }
 
     /// Read from the PPU address space.
     /// Routes: $0000–$1FFF → mapper CHR; $2000–$3EFF → nametable VRAM; $3F00–$3FFF → palette RAM.
-    fn ppu_read_addr(&mut self, addr: u16, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) -> u8 {
+    fn ppu_read_addr(
+        &mut self,
+        addr: u16,
+        nametable_vram: &[u8; 2048],
+        mapper: &mut dyn Mapper,
+    ) -> u8 {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => mapper.ppu_read(addr).unwrap_or(0),
-            0x2000..=0x3EFF => {
-                nametable_vram[nametable_index(addr, mapper.mirroring())]
-            }
+            0x2000..=0x3EFF => nametable_vram[nametable_index(addr, mapper.mirroring())],
             0x3F00..=0x3FFF => self.palette_ram[palette_addr(addr)],
             _ => 0,
         }
@@ -193,8 +200,7 @@ impl Ppu {
                 let addr = self.v & 0x3FFF;
                 let result = if addr >= 0x3F00 {
                     let val = self.palette_ram[palette_addr(addr)];
-                    self.read_buffer =
-                        self.ppu_read_addr(addr & 0x2FFF, nametable_vram, mapper);
+                    self.read_buffer = self.ppu_read_addr(addr & 0x2FFF, nametable_vram, mapper);
                     val
                 } else {
                     let buffered = self.read_buffer;
@@ -322,10 +328,8 @@ impl Ppu {
     /// Source: https://www.nesdev.org/wiki/PPU_rendering
     pub fn tick(&mut self, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) {
         // NTSC odd-frame dot skip: pre-render scanline is 340 dots when rendering enabled.
-        let odd_skip = self.odd_frame
-            && self.rendering_enabled()
-            && self.scanline == 261
-            && self.dot == 339;
+        let odd_skip =
+            self.odd_frame && self.rendering_enabled() && self.scanline == 261 && self.dot == 339;
 
         self.dot += 1;
         if self.dot == 341 || odd_skip {
@@ -366,7 +370,7 @@ impl Ppu {
             let prerender = self.scanline == 261;
 
             if visible || prerender {
-                if self.dot >= 1 && self.dot <= 256 && self.dot % 8 == 0 {
+                if self.dot >= 1 && self.dot <= 256 && self.dot.is_multiple_of(8) {
                     self.increment_coarse_x();
                 }
                 if self.dot == 256 && visible {
@@ -432,7 +436,7 @@ impl Ppu {
                 // Y >= 239 hides sprite; also avoids overflow on y+1+H.
                 continue;
             }
-            if next_scanline >= y + 1 && next_scanline < y + 1 + sprite_height {
+            if next_scanline > y && next_scanline < y + 1 + sprite_height {
                 if self.sprite_count < 8 {
                     self.secondary_oam[self.sprite_count] = (
                         self.oam[i * 4],
@@ -494,10 +498,18 @@ impl Ppu {
                 if flip_v {
                     fine_y = 15 - fine_y;
                 }
-                let (tile_offset, row) = if fine_y < 8 { (0, fine_y) } else { (1, fine_y - 8) };
+                let (tile_offset, row) = if fine_y < 8 {
+                    (0, fine_y)
+                } else {
+                    (1, fine_y - 8)
+                };
                 (bank + (base_tile + tile_offset) * 16, row)
             } else {
-                let bank: u16 = if self.ppuctrl & 0x08 != 0 { 0x1000 } else { 0x0000 };
+                let bank: u16 = if self.ppuctrl & 0x08 != 0 {
+                    0x1000
+                } else {
+                    0x0000
+                };
                 if flip_v {
                     fine_y = 7 - fine_y;
                 }
@@ -527,7 +539,13 @@ impl Ppu {
     // ── Background + sprite pixel render (spec §4f, §5d) ────────────────────
 
     /// Render one pixel at screen position (y, x), mixing background and sprites.
-    fn render_pixel(&mut self, y: u16, x: u16, nametable_vram: &[u8; 2048], mapper: &mut dyn Mapper) {
+    fn render_pixel(
+        &mut self,
+        y: u16,
+        x: u16,
+        nametable_vram: &[u8; 2048],
+        mapper: &mut dyn Mapper,
+    ) {
         // Background fetch from v + fine X.
         let show_bg = self.show_background();
         let show_bg_left = self.ppumask & 0x02 != 0;
@@ -568,7 +586,8 @@ impl Ppu {
             let fine_y = (self.v >> 12) & 0x07;
             let pt_base = self.bg_pattern_table_base();
             let lo = self.ppu_read_addr(pt_base + tile_id * 16 + fine_y, nametable_vram, mapper);
-            let hi = self.ppu_read_addr(pt_base + tile_id * 16 + fine_y + 8, nametable_vram, mapper);
+            let hi =
+                self.ppu_read_addr(pt_base + tile_id * 16 + fine_y + 8, nametable_vram, mapper);
 
             let bit_pos = 7 - fine_x_pixel;
             let color_idx = (((hi >> bit_pos) & 1) << 1) | ((lo >> bit_pos) & 1);
@@ -576,7 +595,10 @@ impl Ppu {
             if color_idx == 0 {
                 (self.palette_ram[0], false)
             } else {
-                (self.palette_ram[palette_select * 4 + color_idx as usize], true)
+                (
+                    self.palette_ram[palette_select * 4 + color_idx as usize],
+                    true,
+                )
             }
         };
 

@@ -1,6 +1,6 @@
-/// Mapper 1 — MMC1 (SxROM). Serial shift-register bank switching.
-///
-/// Spec: https://www.nesdev.org/wiki/MMC1
+//! Mapper 1 — MMC1 (SxROM). Serial shift-register bank switching.
+//!
+//! Spec: https://www.nesdev.org/wiki/MMC1
 
 use super::{CartridgeError, CpuTiming, Mapper, Mirroring, RomHeader};
 
@@ -42,7 +42,11 @@ impl Mapper1 {
         } else {
             (chr_rom, false)
         };
-        let prg_ram_size = if header.prg_ram_size > 0 { header.prg_ram_size } else { 8 * 1024 };
+        let prg_ram_size = if header.prg_ram_size > 0 {
+            header.prg_ram_size
+        } else {
+            8 * 1024
+        };
         Ok(Self {
             prg_rom,
             chr,
@@ -60,12 +64,20 @@ impl Mapper1 {
         })
     }
 
-    fn prg_mode(&self) -> u8 { (self.control >> 2) & 0x03 }
-    fn chr_mode(&self) -> u8 { (self.control >> 4) & 0x01 }
+    fn prg_mode(&self) -> u8 {
+        (self.control >> 2) & 0x03
+    }
+    fn chr_mode(&self) -> u8 {
+        (self.control >> 4) & 0x01
+    }
 
-    fn prg_ram_disabled(&self) -> bool { self.prg_bank & 0x10 != 0 }
+    fn prg_ram_disabled(&self) -> bool {
+        self.prg_bank & 0x10 != 0
+    }
 
-    fn num_prg_banks_16k(&self) -> usize { self.prg_rom.len() / 16384 }
+    fn num_prg_banks_16k(&self) -> usize {
+        self.prg_rom.len() / 16384
+    }
 
     fn prg_read(&self, addr: u16) -> u8 {
         let bank_sel = (self.prg_bank & 0x0F) as usize;
@@ -76,8 +88,8 @@ impl Mapper1 {
                 let b = bank_sel & !1;
                 (b, b + 1)
             }
-            2 => (0, bank_sel),               // fix first bank at $8000
-            3 => (bank_sel, last),             // fix last bank at $C000
+            2 => (0, bank_sel),    // fix first bank at $8000
+            3 => (bank_sel, last), // fix last bank at $C000
             _ => unreachable!(),
         };
         if addr < 0xC000 {
@@ -141,11 +153,9 @@ impl Mapper for Mapper1 {
 
     fn cpu_write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF => {
-                if !self.prg_ram_disabled() && !self.prg_ram.is_empty() {
-                    let idx = ((addr - 0x6000) as usize) % self.prg_ram.len();
-                    self.prg_ram[idx] = val;
-                }
+            0x6000..=0x7FFF if !self.prg_ram_disabled() && !self.prg_ram.is_empty() => {
+                let idx = ((addr - 0x6000) as usize) % self.prg_ram.len();
+                self.prg_ram[idx] = val;
             }
             0x8000..=0xFFFF => {
                 // Consecutive-write guard: ignore writes on back-to-back cycles.
@@ -201,6 +211,10 @@ impl Mapper for Mapper1 {
         }
     }
 
-    fn submapper(&self) -> u8 { self.submapper }
-    fn timing(&self) -> CpuTiming { self.timing }
+    fn submapper(&self) -> u8 {
+        self.submapper
+    }
+    fn timing(&self) -> CpuTiming {
+        self.timing
+    }
 }

@@ -55,7 +55,11 @@ impl Pulse {
     }
 
     pub fn tick_sweep(&mut self) {
-        if self.sweep_divider == 0 && self.sweep_enabled && !self.is_sweep_muting() && self.sweep_shift > 0 {
+        if self.sweep_divider == 0
+            && self.sweep_enabled
+            && !self.is_sweep_muting()
+            && self.sweep_shift > 0
+        {
             self.timer_period = self.calculate_sweep_target();
         }
 

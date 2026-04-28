@@ -1,10 +1,10 @@
+mod apu;
+mod audio;
 mod bus;
 mod cartridge;
 mod cpu;
 mod input;
 mod ppu;
-mod apu;
-mod audio;
 
 use std::env;
 use std::error::Error;
@@ -13,8 +13,8 @@ use std::fs;
 use bus::Bus;
 use cpu::Cpu;
 use pixels::{Pixels, SurfaceTexture};
-use winit::dpi::LogicalSize;
 use std::collections::HashSet;
+use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -28,11 +28,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rom_path = &args[1];
     let nestest_mode = args.iter().any(|a| a == "--nestest");
 
-    let rom_data = fs::read(rom_path)
-        .map_err(|e| format!("Failed to read ROM '{}': {}", rom_path, e))?;
+    let rom_data =
+        fs::read(rom_path).map_err(|e| format!("Failed to read ROM '{}': {}", rom_path, e))?;
 
-    let cart = cartridge::from_bytes(&rom_data)
-        .map_err(|e| format!("Cartridge error: {}", e))?;
+    let cart = cartridge::from_bytes(&rom_data).map_err(|e| format!("Cartridge error: {}", e))?;
 
     let mut bus = Bus::new(cart);
     let mut cpu = Cpu::new();
@@ -65,8 +64,7 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
 
     let mut pixels = {
         let window_size = window.inner_size();
-        let surface_texture =
-            SurfaceTexture::new(window_size.width, window_size.height, &window);
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(256, 240, surface_texture)?
     };
 
@@ -140,10 +138,8 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
                 ..
-            } => {
-                if pixels.resize_surface(size.width, size.height).is_err() {
-                    *control_flow = ControlFlow::Exit;
-                }
+            } if pixels.resize_surface(size.width, size.height).is_err() => {
+                *control_flow = ControlFlow::Exit;
             }
 
             Event::RedrawRequested(_) => {
@@ -176,10 +172,10 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                             let nt = &bus.nametable_vram;
                             let mapper = bus.mapper.as_mut();
                             bus.ppu.tick(nt, mapper);
-                            if total_m_cycles % 3 == 0 {
+                            if total_m_cycles.is_multiple_of(3) {
                                 bus.apu.triangle_tick();
                             }
-                            if total_m_cycles % 6 == 0 {
+                            if total_m_cycles.is_multiple_of(6) {
                                 bus.apu.tick();
                             }
                         }
@@ -203,10 +199,10 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                         let nt = &bus.nametable_vram;
                         let mapper = bus.mapper.as_mut();
                         bus.ppu.tick(nt, mapper);
-                        if total_m_cycles % 3 == 0 {
+                        if total_m_cycles.is_multiple_of(3) {
                             bus.apu.triangle_tick();
                         }
-                        if total_m_cycles % 6 == 0 {
+                        if total_m_cycles.is_multiple_of(6) {
                             bus.apu.tick();
                         }
                     }
@@ -230,10 +226,10 @@ fn run_windowed(mut cpu: Cpu, mut bus: Bus) -> Result<(), Box<dyn Error>> {
                             let nt = &bus.nametable_vram;
                             let mapper = bus.mapper.as_mut();
                             bus.ppu.tick(nt, mapper);
-                            if total_m_cycles % 3 == 0 {
+                            if total_m_cycles.is_multiple_of(3) {
                                 bus.apu.triangle_tick();
                             }
-                            if total_m_cycles % 6 == 0 {
+                            if total_m_cycles.is_multiple_of(6) {
                                 bus.apu.tick();
                             }
                         }

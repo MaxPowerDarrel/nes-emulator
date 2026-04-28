@@ -1,6 +1,6 @@
-/// Mapper 2 — UxROM. Switchable 16 KB PRG bank at $8000, fixed last bank at $C000.
-///
-/// Spec: https://www.nesdev.org/wiki/UxROM
+//! Mapper 2 — UxROM. Switchable 16 KB PRG bank at $8000, fixed last bank at $C000.
+//!
+//! Spec: https://www.nesdev.org/wiki/UxROM
 
 use super::{CartridgeError, CpuTiming, Mapper, Mirroring, RomHeader};
 
@@ -75,7 +75,13 @@ impl Mapper for Mapper2 {
         }
     }
 
-    fn mirroring(&self) -> Mirroring { self.mirroring }
-    fn submapper(&self) -> u8 { self.submapper }
-    fn timing(&self) -> CpuTiming { self.timing }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+    fn submapper(&self) -> u8 {
+        self.submapper
+    }
+    fn timing(&self) -> CpuTiming {
+        self.timing
+    }
 }

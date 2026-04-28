@@ -221,14 +221,8 @@ impl Cpu {
                     instr.name.to_string()
                 };
                 let (bytes_str, asm) = match instr.mode {
-                    Implied => (
-                        format!("{:02X}      ", opcode),
-                        format!("{}", mn),
-                    ),
-                    Accumulator => (
-                        format!("{:02X}      ", opcode),
-                        format!("{} A", mn),
-                    ),
+                    Implied => (format!("{:02X}      ", opcode), mn.clone()),
+                    Accumulator => (format!("{:02X}      ", opcode), format!("{} A", mn)),
                     Immediate => (
                         format!("{:02X} {:02X}   ", opcode, b1),
                         format!("{} #${:02X}", mn, b1),
@@ -241,14 +235,26 @@ impl Cpu {
                         let eff = b1.wrapping_add(self.x) as u16;
                         (
                             format!("{:02X} {:02X}   ", opcode, b1),
-                            format!("{} ${:02X},X @ {:02X} = {:02X}", mn, b1, eff as u8, bus.read(eff)),
+                            format!(
+                                "{} ${:02X},X @ {:02X} = {:02X}",
+                                mn,
+                                b1,
+                                eff as u8,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     ZeroPageY => {
                         let eff = b1.wrapping_add(self.y) as u16;
                         (
                             format!("{:02X} {:02X}   ", opcode, b1),
-                            format!("{} ${:02X},Y @ {:02X} = {:02X}", mn, b1, eff as u8, bus.read(eff)),
+                            format!(
+                                "{} ${:02X},Y @ {:02X} = {:02X}",
+                                mn,
+                                b1,
+                                eff as u8,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     Absolute => {
@@ -268,7 +274,13 @@ impl Cpu {
                         let eff = base.wrapping_add(self.x as u16);
                         (
                             format!("{:02X} {:02X} {:02X}", opcode, b1, b2),
-                            format!("{} ${:04X},X @ {:04X} = {:02X}", mn, base, eff, bus.read(eff)),
+                            format!(
+                                "{} ${:04X},X @ {:04X} = {:02X}",
+                                mn,
+                                base,
+                                eff,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     AbsoluteY => {
@@ -276,7 +288,13 @@ impl Cpu {
                         let eff = base.wrapping_add(self.y as u16);
                         (
                             format!("{:02X} {:02X} {:02X}", opcode, b1, b2),
-                            format!("{} ${:04X},Y @ {:04X} = {:02X}", mn, base, eff, bus.read(eff)),
+                            format!(
+                                "{} ${:04X},Y @ {:04X} = {:02X}",
+                                mn,
+                                base,
+                                eff,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     Indirect => {
@@ -292,7 +310,14 @@ impl Cpu {
                         let eff = bus.read_u16_page_wrap(ptr);
                         (
                             format!("{:02X} {:02X}   ", opcode, b1),
-                            format!("{} (${:02X},X) @ {:02X} = {:04X} = {:02X}", mn, b1, ptr as u8, eff, bus.read(eff)),
+                            format!(
+                                "{} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
+                                mn,
+                                b1,
+                                ptr as u8,
+                                eff,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     IndirectY => {
@@ -301,7 +326,14 @@ impl Cpu {
                         let eff = base.wrapping_add(self.y as u16);
                         (
                             format!("{:02X} {:02X}   ", opcode, b1),
-                            format!("{} (${:02X}),Y = {:04X} @ {:04X} = {:02X}", mn, b1, base, eff, bus.read(eff)),
+                            format!(
+                                "{} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
+                                mn,
+                                b1,
+                                base,
+                                eff,
+                                bus.read(eff)
+                            ),
                         )
                     }
                     Relative => {

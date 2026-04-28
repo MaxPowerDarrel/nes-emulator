@@ -1,20 +1,30 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::{SharedRb, Producer};
+use ringbuf::{Producer, SharedRb};
+use std::mem::MaybeUninit;
+use std::sync::Arc;
+
+/// Lock-free SPSC ring buffer used to ferry mono samples from the APU on the
+/// emulation thread to the cpal audio callback thread.
+pub type AudioRb = SharedRb<f32, Vec<MaybeUninit<f32>>>;
+/// Producer half of `AudioRb`. Owned by the APU; pushes samples as they are generated.
+pub type AudioProducer = Producer<f32, Arc<AudioRb>>;
 
 pub struct AudioStream {
     _stream: cpal::Stream,
 }
 
-pub fn start_audio() -> Result<(Producer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>, AudioStream, u32), Box<dyn std::error::Error>> {
+pub fn start_audio() -> Result<(AudioProducer, AudioStream, u32), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
-    let device = host.default_output_device().ok_or("No default output device")?;
+    let device = host
+        .default_output_device()
+        .ok_or("No default output device")?;
     let config = device.default_output_config()?;
     let sample_rate = config.sample_rate().0;
     let channels = config.channels() as usize;
 
     // Larger ring buffer = more headroom against jitter (less crackle), at the cost of
     // a tiny bit more audio latency. ~16k samples ≈ 340 ms at 48 kHz, which is plenty.
-    let rb = SharedRb::<f32, Vec<std::mem::MaybeUninit<f32>>>::new(16384);
+    let rb = AudioRb::new(16384);
     let (mut prod, mut cons) = rb.split();
 
     // Pre-fill with silence so the very first audio callback doesn't underrun

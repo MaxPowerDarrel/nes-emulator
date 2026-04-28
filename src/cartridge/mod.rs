@@ -1,12 +1,12 @@
-/// iNES / NES 2.0 cartridge loader and mapper dispatch.
-///
-/// Specs:
-///   iNES 1.0:  https://www.nesdev.org/wiki/INES
-///   NES 2.0:   https://www.nesdev.org/wiki/NES_2.0
-///   Mappers:   https://www.nesdev.org/wiki/Mapper
-///   Submappers: https://www.nesdev.org/wiki/NES_2.0_submappers
-///
-/// Header (16 bytes) — see docs/spec-nes2-rom-support.md for full table.
+//! iNES / NES 2.0 cartridge loader and mapper dispatch.
+//!
+//! Specs:
+//!   iNES 1.0:  https://www.nesdev.org/wiki/INES
+//!   NES 2.0:   https://www.nesdev.org/wiki/NES_2.0
+//!   Mappers:   https://www.nesdev.org/wiki/Mapper
+//!   Submappers: https://www.nesdev.org/wiki/NES_2.0_submappers
+//!
+//! Header (16 bytes) — see docs/spec-nes2-rom-support.md for full table.
 
 pub mod mapper0;
 pub mod mapper1;
@@ -101,18 +101,24 @@ pub trait Mapper {
 
     /// Submapper number from the NES 2.0 header (0 for iNES 1.0).
     #[allow(dead_code)]
-    fn submapper(&self) -> u8 { 0 }
+    fn submapper(&self) -> u8 {
+        0
+    }
 
     /// CPU/PPU timing region. PPU still uses NTSC frame timing regardless — see
     /// docs/spec-nes2-rom-support.md §10.
     #[allow(dead_code)]
-    fn timing(&self) -> CpuTiming { CpuTiming::Ntsc }
+    fn timing(&self) -> CpuTiming {
+        CpuTiming::Ntsc
+    }
 
     /// Called on every PPU CHR address access. Returns true if the mapper is asserting
     /// a CPU IRQ this cycle (MMC3 scanline counter). Default: no-op, no IRQ.
     ///
     /// Spec: https://www.nesdev.org/wiki/MMC3#IRQ_Specifics
-    fn poll_irq(&mut self) -> bool { false }
+    fn poll_irq(&mut self) -> bool {
+        false
+    }
 
     /// Called once per visible/pre-render scanline by the PPU. Used by mappers
     /// (MMC3) that drive their IRQ counter off the PPU scanline clock in
@@ -147,7 +153,10 @@ impl std::fmt::Display for CartridgeError {
                 write!(f, "unsupported console type {}", c)
             }
             CartridgeError::RomTooLarge { kind, bytes } => {
-                let k = match kind { SizeKind::Prg => "PRG", SizeKind::Chr => "CHR" };
+                let k = match kind {
+                    SizeKind::Prg => "PRG",
+                    SizeKind::Chr => "CHR",
+                };
                 write!(f, "{} ROM size too large: {} bytes", k, bytes)
             }
             CartridgeError::InvalidSizeEncoding => write!(f, "invalid ROM size encoding"),
@@ -177,10 +186,12 @@ pub fn from_bytes(data: &[u8]) -> Result<Cartridge, CartridgeError> {
     };
 
     let prg_start = HEADER_SIZE + if header.has_trainer { TRAINER_SIZE } else { 0 };
-    let prg_end = prg_start.checked_add(header.prg_rom_size)
+    let prg_end = prg_start
+        .checked_add(header.prg_rom_size)
         .ok_or(CartridgeError::InvalidSizeEncoding)?;
     let chr_start = prg_end;
-    let chr_end = chr_start.checked_add(header.chr_rom_size)
+    let chr_end = chr_start
+        .checked_add(header.chr_rom_size)
         .ok_or(CartridgeError::InvalidSizeEncoding)?;
     if data.len() < chr_end {
         return Err(CartridgeError::TooShort);
@@ -205,7 +216,10 @@ pub fn from_bytes(data: &[u8]) -> Result<Cartridge, CartridgeError> {
         prg_ram_total
     };
 
-    Ok(Cartridge { mapper, prg_ram_size })
+    Ok(Cartridge {
+        mapper,
+        prg_ram_size,
+    })
 }
 
 fn parse_ines1_header(h: &[u8]) -> RomHeader {
@@ -217,7 +231,11 @@ fn parse_ines1_header(h: &[u8]) -> RomHeader {
     let mapper = u16::from((flags7 & 0xF0) | (flags6 >> 4));
     let prg_rom_size = byte4 * PRG_BANK_SIZE;
     let chr_rom_size = byte5 * CHR_BANK_SIZE;
-    let chr_ram_size = if chr_rom_size == 0 { DEFAULT_CHR_RAM_SIZE } else { 0 };
+    let chr_ram_size = if chr_rom_size == 0 {
+        DEFAULT_CHR_RAM_SIZE
+    } else {
+        0
+    };
 
     RomHeader {
         format: RomFormat::INes1,
@@ -247,9 +265,7 @@ fn parse_nes2_header(h: &[u8]) -> Result<RomHeader, CartridgeError> {
     let byte11 = h[11];
     let byte12 = h[12];
 
-    let mapper = (((byte8 & 0x0F) as u16) << 8)
-        | ((flags7 & 0xF0) as u16)
-        | ((flags6 >> 4) as u16);
+    let mapper = (((byte8 & 0x0F) as u16) << 8) | ((flags7 & 0xF0) as u16) | ((flags6 >> 4) as u16);
     let submapper = byte8 >> 4;
 
     let prg_rom_size = decode_rom_size(byte4, byte9 & 0x0F, PRG_BANK_SIZE, SizeKind::Prg)?;
@@ -306,19 +322,30 @@ fn decode_rom_size(
         let exponent = ((lsb >> 2) & 0x3F) as u32;
         let multiplier = (lsb & 0x03) as usize;
         if exponent >= usize::BITS {
-            return Err(CartridgeError::RomTooLarge { kind, bytes: usize::MAX });
+            return Err(CartridgeError::RomTooLarge {
+                kind,
+                bytes: usize::MAX,
+            });
         }
         let base = 1usize << exponent;
-        let bytes = base.checked_mul(multiplier * 2 + 1)
-            .ok_or(CartridgeError::RomTooLarge { kind, bytes: usize::MAX })?;
+        let bytes = base
+            .checked_mul(multiplier * 2 + 1)
+            .ok_or(CartridgeError::RomTooLarge {
+                kind,
+                bytes: usize::MAX,
+            })?;
         if bytes > MAX_ROM_BYTES {
             return Err(CartridgeError::RomTooLarge { kind, bytes });
         }
         Ok(bytes)
     } else {
         let units = ((msb_nibble as usize) << 8) | (lsb as usize);
-        let bytes = units.checked_mul(bank_size)
-            .ok_or(CartridgeError::RomTooLarge { kind, bytes: usize::MAX })?;
+        let bytes = units
+            .checked_mul(bank_size)
+            .ok_or(CartridgeError::RomTooLarge {
+                kind,
+                bytes: usize::MAX,
+            })?;
         if bytes > MAX_ROM_BYTES {
             return Err(CartridgeError::RomTooLarge { kind, bytes });
         }

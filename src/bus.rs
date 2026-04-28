@@ -1,20 +1,20 @@
-/// NES CPU + PPU memory buses.
-///
-/// CPU map: https://www.nesdev.org/wiki/CPU_memory_map
-/// PPU map: https://www.nesdev.org/wiki/PPU_memory_map
-///
-/// CPU address map:
-///   $0000–$07FF  2 KB CPU RAM (mirrored through $1FFF)
-///   $2000–$3FFF  PPU registers (8 registers, mirrored every 8 bytes)
-///   $4000–$4017  APU / I/O (open bus stub)
-///   $4018–$5FFF  Open bus stub
-///   $6000–$7FFF  WRAM (8 KB)
-///   $8000–$FFFF  Routed through mapper
+//! NES CPU + PPU memory buses.
+//!
+//! CPU map: https://www.nesdev.org/wiki/CPU_memory_map
+//! PPU map: https://www.nesdev.org/wiki/PPU_memory_map
+//!
+//! CPU address map:
+//!   $0000–$07FF  2 KB CPU RAM (mirrored through $1FFF)
+//!   $2000–$3FFF  PPU registers (8 registers, mirrored every 8 bytes)
+//!   $4000–$4017  APU / I/O (open bus stub)
+//!   $4018–$5FFF  Open bus stub
+//!   $6000–$7FFF  WRAM (8 KB)
+//!   $8000–$FFFF  Routed through mapper
 
+use crate::apu::Apu;
 use crate::cartridge::{Cartridge, Mapper, Mirroring};
 use crate::input::Controller;
 use crate::ppu::Ppu;
-use crate::apu::Apu;
 
 const RAM_SIZE: usize = 2048;
 const RAM_MASK: u16 = 0x07FF;
@@ -115,12 +115,8 @@ impl Bus {
             0x2000..=0x3FFF => {
                 let reg = (addr & 0x07) as u8;
                 // Split-field borrow: ppu (mut) vs nametable_vram (mut) vs mapper (mut).
-                self.ppu.register_write(
-                    reg,
-                    val,
-                    &mut self.nametable_vram,
-                    self.mapper.as_mut(),
-                );
+                self.ppu
+                    .register_write(reg, val, &mut self.nametable_vram, self.mapper.as_mut());
             }
             0x4014 => {
                 // OAM DMA: defer the actual transfer to the main loop so it can
@@ -163,9 +159,7 @@ impl Bus {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => self.mapper.ppu_read(addr).unwrap_or(0),
-            0x2000..=0x3EFF => {
-                self.nametable_vram[nametable_index(addr, self.mapper.mirroring())]
-            }
+            0x2000..=0x3EFF => self.nametable_vram[nametable_index(addr, self.mapper.mirroring())],
             0x3F00..=0x3FFF => self.ppu.palette_ram[palette_addr(addr)],
             _ => 0,
         }
@@ -201,11 +195,11 @@ pub(crate) fn nametable_index(addr: u16, mirroring: Mirroring) -> usize {
     let table = addr / 0x400;
     let offset = (addr % 0x400) as usize;
     let bank = match mirroring {
-        Mirroring::Horizontal => table / 2,       // slots 0,1 → bank A; 2,3 → bank B
-        Mirroring::Vertical => table & 1,         // slots 0,2 → bank A; 1,3 → bank B
-        Mirroring::FourScreen => table & 1,       // no cart VRAM for NROM; treat as vertical
-        Mirroring::SingleScreenLower => 0,        // all slots → bank A
-        Mirroring::SingleScreenUpper => 1,        // all slots → bank B
+        Mirroring::Horizontal => table / 2, // slots 0,1 → bank A; 2,3 → bank B
+        Mirroring::Vertical => table & 1,   // slots 0,2 → bank A; 1,3 → bank B
+        Mirroring::FourScreen => table & 1, // no cart VRAM for NROM; treat as vertical
+        Mirroring::SingleScreenLower => 0,  // all slots → bank A
+        Mirroring::SingleScreenUpper => 1,  // all slots → bank B
     };
     (bank as usize) * 0x400 + offset
 }

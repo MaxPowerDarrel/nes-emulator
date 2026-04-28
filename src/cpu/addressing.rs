@@ -1,9 +1,9 @@
-/// 6502 addressing mode resolution.
-///
-/// Spec: http://www.6502.org/tutorials/6502opcodes.html
-///
-/// Each mode returns the effective address (if any) and whether a page boundary
-/// was crossed (which costs +1 cycle for read instructions).
+//! 6502 addressing mode resolution.
+//!
+//! Spec: http://www.6502.org/tutorials/6502opcodes.html
+//!
+//! Each mode returns the effective address (if any) and whether a page boundary
+//! was crossed (which costs +1 cycle for read instructions).
 
 use super::Cpu;
 use crate::bus::Bus;
@@ -46,33 +46,48 @@ impl Cpu {
             AddrMode::Immediate => {
                 let addr = self.pc;
                 self.pc = self.pc.wrapping_add(1);
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::ZeroPage => {
                 let addr = bus.read(self.pc) as u16;
                 self.pc = self.pc.wrapping_add(1);
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::ZeroPageX => {
                 let base = bus.read(self.pc);
                 self.pc = self.pc.wrapping_add(1);
                 let addr = base.wrapping_add(self.x) as u16;
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::ZeroPageY => {
                 let base = bus.read(self.pc);
                 self.pc = self.pc.wrapping_add(1);
                 let addr = base.wrapping_add(self.y) as u16;
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::Absolute => {
                 let addr = bus.read_u16(self.pc);
                 self.pc = self.pc.wrapping_add(2);
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::AbsoluteX => {
@@ -96,7 +111,10 @@ impl Cpu {
                 self.pc = self.pc.wrapping_add(2);
                 // Hardware bug: wraps within page if ptr low byte is $FF
                 let addr = bus.read_u16_page_wrap(ptr);
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::IndirectX => {
@@ -104,7 +122,10 @@ impl Cpu {
                 self.pc = self.pc.wrapping_add(1);
                 let ptr = base.wrapping_add(self.x) as u16;
                 let addr = bus.read_u16_page_wrap(ptr);
-                Operand { addr, page_crossed: false }
+                Operand {
+                    addr,
+                    page_crossed: false,
+                }
             }
 
             AddrMode::IndirectY => {

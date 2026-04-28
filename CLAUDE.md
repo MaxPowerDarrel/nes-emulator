@@ -32,46 +32,54 @@ Build a cycle-accurate NES emulator in Rust as a hardware learning exercise. Cor
 - This is a learning exercise: understanding *why* the hardware behaves as it does matters as much as getting it to work
 
 ### Tech Stack
-- **Language**: Rust (stable)
-- **Rendering**: `winit` + `pixels` (pure Rust framebuffer, 256×240 NES native resolution)
-- **Audio**: Implemented — APU milestone 8 complete, mono output via `cpal`
+- **Language**: Rust (stable, edition 2024)
+- **Rendering**: `winit` 0.28 + `pixels` 0.13 (pure-Rust framebuffer, 256×240 NES native resolution)
+- **Audio**: `cpal` 0.15 + `ringbuf` 0.3 — mono output (APU milestone 8 complete)
 - **No external game-logic dependencies** — implement everything from the NES hardware spec
 
 ### Accuracy Target
-**Cycle-accurate.** The CPU (6502) and PPU share a single master clock:
+**Cycle-accurate.** The CPU (6502), PPU, and APU share a single master clock:
 - PPU ticks every master cycle
 - CPU ticks every 3 master cycles
-- APU ticks every 2 master cycles (when implemented)
+- APU ticks every 6 master cycles (= every 2 CPU cycles); the triangle channel ticks every 3 master cycles (every CPU cycle)
 
-The emulator loop must reflect this interleaving, not run CPU and PPU independently per-frame.
+The emulator loop must reflect this interleaving directly, not run components independently per-frame.
 
 ### Architecture
 
 ```
 src/
   main.rs        # Window creation, event loop, master clock
-  bus.rs         # Memory bus — routes reads/writes to CPU RAM, PPU, cartridge
+  bus.rs         # Memory bus — routes reads/writes to CPU RAM, PPU, APU, cartridge
+  audio.rs       # cpal output stream + ring-buffer plumbing
+  input.rs       # Standard controller ($4016/$4017)
   cpu/           # MOS 6502 CPU
     mod.rs
     opcodes.rs
     addressing.rs
   ppu/           # Picture Processing Unit
     mod.rs
-  cartridge/     # iNES header parser + mapper dispatch
+    palette.rs
+  apu/           # Audio Processing Unit
     mod.rs
-    mapper0.rs
+    pulse.rs / triangle.rs / noise.rs / dmc.rs
+    envelope.rs / length.rs / frame_counter.rs / mixer.rs
+  cartridge/     # iNES / NES 2.0 header parser + mapper dispatch
+    mod.rs
+    mapper0.rs / mapper1.rs / mapper2.rs / mapper3.rs / mapper4.rs
 ```
 
-**Bus ownership**: The `Bus` owns the `Cartridge`, `Ppu`, and CPU RAM. The `Cpu` holds a reference to the `Bus`. The main loop owns the `Cpu`.
+**Bus ownership**: The `Bus` owns the `Cartridge`, `Ppu`, `Apu`, and CPU RAM. The `Cpu` borrows the `Bus`. The main loop owns the `Cpu`.
 
 **No shared mutable state via `Rc<RefCell<_>>`** unless absolutely necessary — prefer passing references explicitly or restructuring to avoid it.
 
 ### Mapper Scope
-Implement mappers incrementally:
-- **Mapper 0 (NROM)**: First — covers Donkey Kong, Super Mario Bros 1
-- **Mapper 1 (MMC1)**: Second — covers Zelda, Metroid
-- **Mapper 2 (UxROM)**: Third — covers Mega Man, Castlevania
-- **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**: Later
+Mappers are implemented incrementally. Current status:
+- **Mapper 0 (NROM)** ✅ — Donkey Kong, Super Mario Bros 1
+- **Mapper 1 (MMC1)** 🚧 — Zelda, Metroid
+- **Mapper 2 (UxROM)** 🚧 — Mega Man, Castlevania
+- **Mapper 3 (CNROM)** 🚧
+- **Mapper 4 (MMC3)** 🚧
 
 ### Testing Strategy
 Test ROMs are first-class. The CPU must pass `nestest.nes` before PPU work begins. Run Blargg's test ROMs to verify PPU and timing behavior.
@@ -97,8 +105,12 @@ Test ROMs are first-class. The CPU must pass `nestest.nes` before PPU work begin
 - Once the user gives the go-ahead, create a PR targeting `main` with a clear description of what was implemented and any spec references used
 
 ### Coding Conventions
-- No `unwrap()` in emulator core paths — use `?` or explicit error handling
+- No `unwrap()` / `expect()` in emulator core paths — use `?`, `unwrap_or`, or explicit error handling
 - Represent hardware registers as `u8`; addresses as `u16`
 - Prefer named constants over magic numbers for memory map regions
-- Each hardware component (`Cpu`, `Ppu`, `Cartridge`) lives in its own module
-- Keep `main.rs` thin — only windowing and the master clock loop
+- Each hardware component (`Cpu`, `Ppu`, `Apu`, `Cartridge`) lives in its own module
+- Keep `main.rs` thin — only windowing, input plumbing, and the master clock loop
+- File-level documentation uses inner doc comments (`//!`), not `///`. Item-level docs use `///`
+- Prefer `u.is_multiple_of(n)` over `u % n == 0` for unsigned divisibility checks
+- Cite the relevant NESDev / datasheet URL in a doc comment next to any hardware-modeling code
+- Run `cargo clippy` before committing — the tree is expected to be warning-free

@@ -1,13 +1,13 @@
-/// Mapper 0 — NROM. No bank switching; fixed PRG and CHR windows.
-///
-/// Spec: https://www.nesdev.org/wiki/NROM
-///
-/// CPU bus:
-///   $8000–$BFFF  PRG-ROM bank 0 (first 16 KB)
-///   $C000–$FFFF  PRG-ROM bank 1 (NROM-256), or mirror of bank 0 (NROM-128)
-///
-/// PPU bus:
-///   $0000–$1FFF  CHR-ROM (or CHR-RAM sized from header when chr_rom is empty)
+//! Mapper 0 — NROM. No bank switching; fixed PRG and CHR windows.
+//!
+//! Spec: https://www.nesdev.org/wiki/NROM
+//!
+//! CPU bus:
+//!   $8000–$BFFF  PRG-ROM bank 0 (first 16 KB)
+//!   $C000–$FFFF  PRG-ROM bank 1 (NROM-256), or mirror of bank 0 (NROM-128)
+//!
+//! PPU bus:
+//!   $0000–$1FFF  CHR-ROM (or CHR-RAM sized from header when chr_rom is empty)
 
 use super::{CartridgeError, CpuTiming, Mapper, Mirroring, RomHeader};
 
@@ -86,7 +86,11 @@ impl Mapper for Mapper0 {
         self.mirroring
     }
 
-    fn submapper(&self) -> u8 { self.submapper }
+    fn submapper(&self) -> u8 {
+        self.submapper
+    }
 
-    fn timing(&self) -> CpuTiming { self.timing }
+    fn timing(&self) -> CpuTiming {
+        self.timing
+    }
 }
